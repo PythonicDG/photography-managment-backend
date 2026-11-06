@@ -37,10 +37,14 @@ if not DEBUG:
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = 3600
     SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    # Nginx terminates HTTPS and forwards plain HTTP; trust its header so
+    # SECURE_SSL_REDIRECT doesn't loop forever.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost').split(',')
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:8080').rstrip('/')
 CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:5173,http://localhost:8080,http://localhost:8081,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:8080,http://127.0.0.1:8081').split(',')
+CSRF_TRUSTED_ORIGINS = [o for o in os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',') if o]
 
 
 # Application definition
@@ -140,6 +144,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
