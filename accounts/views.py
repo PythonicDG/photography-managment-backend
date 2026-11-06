@@ -19,6 +19,9 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from billing.permissions import HasActiveSubscription
+from billing.services import start_trial
+
 from .models import SharedQuote, Studio, User
 from .platform_sync import export_platform, import_platform
 from .quote_calc import QuoteError, recalculate
@@ -119,9 +122,11 @@ class StartTrialView(APIView):
         studio = Studio.objects.filter(owner=request.user).first()
         if studio is None:
             return Response({'detail': 'Create your studio before starting the trial.'}, status=status.HTTP_400_BAD_REQUEST)
-        if studio.trial_started_at is None:
-            studio.trial_started_at = timezone.now()
-            studio.save(update_fields=['trial_started_at'])
+        with transaction.atomic():
+            if studio.trial_started_at is None:
+                studio.trial_started_at = timezone.now()
+                studio.save(update_fields=['trial_started_at'])
+            start_trial(studio)
         return Response(StudioSerializer(studio).data)
 
 
@@ -162,7 +167,7 @@ class LogoutView(APIView):
 
 class SharedQuoteListView(APIView):
     authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActiveSubscription]
 
     def get(self, request):
         return Response(list(SharedQuote.objects.filter(studio__owner=request.user).values('id', 'local_id', 'status', 'version', 'root_local_id', 'feedback')))
@@ -243,7 +248,7 @@ class PublicQuoteView(APIView):
 
 class SendDocumentView(APIView):
     authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActiveSubscription]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'document_email'
 
@@ -278,7 +283,7 @@ class SendQuotationWhatsAppView(APIView):
     """Sends a quotation PDF to a client on WhatsApp using the approved Meta template."""
 
     authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActiveSubscription]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'document_whatsapp'
 
@@ -310,7 +315,7 @@ class PlatformView(APIView):
     """Whole-studio data (services, packages, clients, quotes, bookings, payments...) for the frontend."""
 
     authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActiveSubscription]
 
     def get(self, request):
         studio = Studio.objects.filter(owner=request.user).first()

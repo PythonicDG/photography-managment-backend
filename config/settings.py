@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     'quotations',
     'bookings',
     'payments',
+    'billing',
 ]
 
 MIDDLEWARE = [
@@ -154,9 +155,11 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'accounts.User'
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': ['rest_framework.authentication.TokenAuthentication'],
-    'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
+    # Every API is closed by default: signed-in users only, and writes need a live trial or paid plan.
+    # Views that must stay open (auth, onboarding, billing, public quote links) set their own permissions.
+    'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated', 'billing.permissions.HasActiveSubscription'],
     'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],
-    'DEFAULT_THROTTLE_RATES': {'login': '10/min', 'register': '5/hour', 'document_email': '10/hour', 'document_whatsapp': '30/hour'},
+    'DEFAULT_THROTTLE_RATES': {'login': '10/min', 'register': '5/hour', 'document_email': '10/hour', 'document_whatsapp': '30/hour', 'billing_checkout': '20/hour'},
 }
 
 EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
@@ -175,3 +178,18 @@ WHATSAPP_API_VERSION = os.environ.get('WHATSAPP_API_VERSION', 'v21.0')
 WHATSAPP_QUOTE_TEMPLATE = os.environ.get('WHATSAPP_QUOTE_TEMPLATE', '')
 WHATSAPP_TEMPLATE_LANGUAGE = os.environ.get('WHATSAPP_TEMPLATE_LANGUAGE', 'en')
 WHATSAPP_DEFAULT_COUNTRY_CODE = os.environ.get('WHATSAPP_DEFAULT_COUNTRY_CODE', '91')
+
+# Subscriptions & billing ---------------------------------------------------------------
+# Plans and prices are managed in Django admin (Billing > Plans). These are the global rules.
+BILLING_TRIAL_DAYS = int(os.environ.get('BILLING_TRIAL_DAYS', '15'))
+# Days a lapsed paid plan keeps full access before the workspace turns read-only.
+BILLING_GRACE_DAYS = int(os.environ.get('BILLING_GRACE_DAYS', '3'))
+BILLING_GST_PERCENT = int(os.environ.get('BILLING_GST_PERCENT', '18'))
+BILLING_CURRENCY = 'INR'
+BILLING_BRAND_NAME = os.environ.get('BILLING_BRAND_NAME', 'FrameFlow')
+
+# Razorpay (https://dashboard.razorpay.com/app/website-app-settings/api-keys).
+# Use rzp_test_... keys locally and rzp_live_... keys in production. The secret never leaves the server.
+RAZORPAY_KEY_ID = os.environ.get('RAZORPAY_KEY_ID', '')
+RAZORPAY_KEY_SECRET = os.environ.get('RAZORPAY_KEY_SECRET', '')
+RAZORPAY_WEBHOOK_SECRET = os.environ.get('RAZORPAY_WEBHOOK_SECRET', '')

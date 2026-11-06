@@ -9,13 +9,24 @@ from django.test import override_settings
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
+from django.utils import timezone
+
+from billing.services import start_trial
+
 from .models import SharedQuote, Studio, User
+
+
+def make_studio(owner, name='Lenscraft Studio'):
+    """A studio inside its free trial, i.e. allowed to write."""
+    studio = Studio.objects.create(owner=owner, name=name, trial_started_at=timezone.now())
+    start_trial(studio)
+    return studio
 
 
 class SharedQuoteTests(APITestCase):
     def test_revisions_keep_sent_totals_and_original_link_opens_latest(self):
         owner = User.objects.create_user(email='revisions@example.com', password='Testpass123!', full_name='Owner', phone='9822041567', is_active=True)
-        studio = Studio.objects.create(owner=owner, name='Lenscraft Studio')
+        studio = make_studio(owner)
         self.client.force_authenticate(user=owner)
         original = {'number': 'FF-Q-0001', 'event': 'Wedding', 'client_name': 'Sneha', 'items': [{'name': 'Photos', 'price': 100000}], 'subtotal': 100000, 'discount': 0, 'gst': 0, 'total': 100000, 'advance': 0, 'terms': ''}
         first = self.client.post(reverse('shared-quotes'), {'local_id': 'quote-1', 'snapshot': original}, format='json')
@@ -43,7 +54,7 @@ class SharedQuoteTests(APITestCase):
 
     def test_rejected_version_can_be_revised_without_changing_rejection(self):
         owner = User.objects.create_user(email='rejected@example.com', password='Testpass123!', full_name='Owner', phone='9822041567', is_active=True)
-        Studio.objects.create(owner=owner, name='Lenscraft Studio')
+        make_studio(owner)
         self.client.force_authenticate(user=owner)
         snapshot = {'number': 'Q-1', 'event': 'Wedding', 'client_name': 'Sneha', 'items': [], 'subtotal': 100, 'total': 100}
         first = self.client.post(reverse('shared-quotes'), {'local_id': 'first', 'snapshot': snapshot}, format='json')
@@ -58,7 +69,7 @@ class SharedQuoteTests(APITestCase):
 
     def test_package_details_are_stored_and_validated(self):
         owner = User.objects.create_user(email='pkg@example.com', password='Testpass123!', full_name='Owner', phone='9822041567', is_active=True)
-        Studio.objects.create(owner=owner, name='Lenscraft Studio')
+        make_studio(owner)
         self.client.force_authenticate(user=owner)
         details = {'name': 'Wedding Silver', 'category': 'Wedding', 'team': ['1 Candid Photographer'], 'deliverables': ['25 page album'], 'notes': 'Drone pilot: Rs. 5,000'}
         snapshot = {'number': 'FF-Q-0001', 'event': 'Wedding', 'client_name': 'Sneha', 'items': [{'name': 'Wedding Silver package', 'price': 50000}], 'subtotal': 50000, 'discount': 0, 'total': 50000, 'advance': 0, 'terms': '', 'package_details': details}
@@ -72,7 +83,7 @@ class SharedQuoteTests(APITestCase):
 
     def test_client_decision_updates_shared_quote_once(self):
         owner = User.objects.create_user(email='owner@example.com', password='Testpass123!', full_name='Owner', phone='9822041567', is_active=True)
-        studio = Studio.objects.create(owner=owner, name='Lenscraft Studio')
+        studio = make_studio(owner)
         self.client.force_authenticate(user=owner)
         snapshot = {
             'number': 'FF-Q-0001', 'event': 'Wedding', 'client_name': 'Sneha',
@@ -98,7 +109,7 @@ class SharedQuoteTests(APITestCase):
     @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
     def test_invoice_pdf_can_be_emailed(self):
         owner = User.objects.create_user(email='billing@example.com', password='Testpass123!', full_name='Owner', phone='9822041567', is_active=True)
-        Studio.objects.create(owner=owner, name='Lenscraft Studio')
+        make_studio(owner)
         self.client.force_authenticate(user=owner)
         pdf = SimpleUploadedFile('invoice.pdf', b'%PDF-1.4\n' + b'0' * 150, content_type='application/pdf')
         response = self.client.post(reverse('send-document'), {'recipient': 'client@example.com', 'kind': 'invoice', 'document': pdf}, format='multipart')
@@ -113,7 +124,7 @@ class WhatsAppQuotationTests(APITestCase):
     def setUp(self):
         cache.clear()
         self.owner = User.objects.create_user(email='wa@example.com', password='Testpass123!', full_name='Owner', phone='9822041567', is_active=True)
-        Studio.objects.create(owner=self.owner, name='Lenscraft Studio')
+        make_studio(self.owner)
         self.client.force_authenticate(user=self.owner)
 
     def post(self, phone='98220 41567'):
@@ -228,7 +239,7 @@ class OnboardingTests(APITestCase):
 class PackageQuoteRecalculationTests(APITestCase):
     def setUp(self):
         self.owner = User.objects.create_user(email='calc@example.com', password='Testpass123!', full_name='Owner', phone='9822041567', is_active=True)
-        Studio.objects.create(owner=self.owner, name='Lenscraft Studio')
+        make_studio(self.owner)
         self.client.force_authenticate(user=self.owner)
 
     def snapshot(self, **overrides):
