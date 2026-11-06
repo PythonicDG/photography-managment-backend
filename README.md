@@ -25,5 +25,10 @@ Endpoints:
 | POST | `/api/auth/login/` | Return a DRF auth token after verification |
 | GET | `/api/auth/me/` | Return the current user (`Authorization: Token ...`) |
 | POST | `/api/auth/logout/` | Revoke the current token |
+| GET/POST | `/api/auth/quotes/` | List shared quote decisions or publish a quote snapshot (authenticated) |
+| GET/POST | `/api/auth/quotes/<uuid>/` | View a published quote or accept/reject it from the client portal |
+| POST | `/api/auth/documents/email/` | Email a generated invoice or receipt PDF to a client (authenticated) |
+
+The core studio workspace currently stores catalogue, enquiries, clients, bookings and payment records in browser localStorage. Published quotations and client decisions are stored in the backend. Deploy both apps and run `python manage.py migrate` before sharing client links across devices.
 
 Run API tests with `python manage.py test accounts`.

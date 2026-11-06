@@ -1,6 +1,7 @@
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+import uuid
 
 
 class UserManager(BaseUserManager):
@@ -44,6 +45,24 @@ class Studio(models.Model):
     business_type = models.CharField(max_length=100, blank=True)
     gstin = models.CharField(max_length=15, blank=True)
     trial_started_at = models.DateTimeField(null=True, blank=True)
+    platform_settings = models.JSONField(default=dict, blank=True)
+    platform_synced_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return self.name
+
+
+class SharedQuote(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    studio = models.ForeignKey(Studio, on_delete=models.CASCADE, related_name='shared_quotes')
+    local_id = models.CharField(max_length=100)
+    snapshot = models.JSONField()
+    root_local_id = models.CharField(max_length=100, blank=True)
+    version = models.PositiveIntegerField(default=1)
+    feedback = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=[('Pending', 'Pending'), ('Accepted', 'Accepted'), ('Rejected', 'Rejected'), ('Changes requested', 'Changes requested'), ('Superseded', 'Superseded')], default='Pending')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['studio', 'local_id'], name='unique_studio_local_quote')]
+
