@@ -159,8 +159,11 @@ REST_FRAMEWORK = {
     # Views that must stay open (auth, onboarding, billing, public quote links) set their own permissions.
     'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated', 'billing.permissions.HasActiveSubscription'],
     'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],
-    'DEFAULT_THROTTLE_RATES': {'login': '10/min', 'register': '5/hour', 'document_email': '10/hour', 'document_whatsapp': '30/hour', 'billing_checkout': '20/hour'},
+    'DEFAULT_THROTTLE_RATES': {'login': '10/min', 'register': '5/hour', 'document_email': '10/hour', 'document_whatsapp': '30/hour', 'billing_checkout': '20/hour', 'password_reset': '10/hour'},
 }
+
+# Password reset links expire after one hour.
+PASSWORD_RESET_TIMEOUT = 60 * 60
 
 EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
 EMAIL_HOST = os.environ.get('EMAIL_HOST', 'localhost')
@@ -170,6 +173,14 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'true').lower() == 'true'
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'FrameFlow <no-reply@example.com>')
+
+# Send errors (including 500 tracebacks) to stderr so they show up in gunicorn / journalctl logs.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {'console': {'class': 'logging.StreamHandler'}},
+    'root': {'handlers': ['console'], 'level': os.environ.get('DJANGO_LOG_LEVEL', 'INFO')},
+}
 
 # WhatsApp Business Cloud API (Meta). Leave the token empty to disable WhatsApp sending.
 WHATSAPP_ACCESS_TOKEN = os.environ.get('WHATSAPP_ACCESS_TOKEN', '')
@@ -184,7 +195,8 @@ WHATSAPP_DEFAULT_COUNTRY_CODE = os.environ.get('WHATSAPP_DEFAULT_COUNTRY_CODE', 
 BILLING_TRIAL_DAYS = int(os.environ.get('BILLING_TRIAL_DAYS', '15'))
 # Days a lapsed paid plan keeps full access before the workspace turns read-only.
 BILLING_GRACE_DAYS = int(os.environ.get('BILLING_GRACE_DAYS', '3'))
-BILLING_GST_PERCENT = int(os.environ.get('BILLING_GST_PERCENT', '18'))
+# GST added on top of plan prices at checkout. Keep 0 unless the business is GST-registered.
+BILLING_GST_PERCENT = int(os.environ.get('BILLING_GST_PERCENT', '0'))
 BILLING_CURRENCY = 'INR'
 BILLING_BRAND_NAME = os.environ.get('BILLING_BRAND_NAME', 'FrameFlow')
 
