@@ -1,8 +1,12 @@
+import logging
 import re
+import smtplib
 from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.tokens import default_token_generator
 from django.core import signing
 from django.core.mail import EmailMessage, send_mail
 from django.core.validators import validate_email
@@ -10,6 +14,8 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.http import HttpResponseRedirect
 from django.urls import reverse
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.authentication import TokenAuthentication
@@ -26,7 +32,19 @@ from .models import SharedQuote, Studio, User
 from .platform_sync import export_platform, import_platform
 from .quote_calc import QuoteError, recalculate
 from .whatsapp import WhatsAppError, clean_param, normalize_phone, send_quotation
-from .serializers import LoginSerializer, RegisterSerializer, StudioSerializer, UserSerializer
+logger = logging.getLogger(__name__)
+
+EMAIL_ERRORS = (smtplib.SMTPException, OSError)
+EMAIL_UNAVAILABLE = 'We could not send the email right now. Please try again in a few minutes.'
+
+from .serializers import (
+    LoginSerializer,
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestSerializer,
+    RegisterSerializer,
+    StudioSerializer,
+    UserSerializer,
+)
 
 
 def valid_package_details(details):
@@ -67,6 +85,10 @@ class RegisterView(APIView):
                 )
         except IntegrityError:
             return Response({'email': ['An account with this email already exists.']}, status=status.HTTP_400_BAD_REQUEST)
+        except EMAIL_ERRORS:
+            # The exception leaves the atomic block, so the half-created user is rolled back and can register again.
+            logger.exception('Verification email failed for registration')
+            return Response({'detail': EMAIL_UNAVAILABLE}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         return Response({'detail': 'Account created. Check your email to verify it before logging in.'}, status=status.HTTP_201_CREATED)
 
 
@@ -275,7 +297,11 @@ class SendDocumentView(APIView):
             to=[recipient],
         )
         message.attach(f'{kind}.pdf', document.read(), 'application/pdf')
-        message.send(fail_silently=False)
+        try:
+            message.send(fail_silently=False)
+        except EMAIL_ERRORS:
+            logger.exception('Document email failed')
+            return Response({'detail': EMAIL_UNAVAILABLE}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         return Response({'detail': f'{kind.capitalize()} sent.'})
 
 
@@ -332,3 +358,70 @@ class PlatformView(APIView):
             return Response({'detail': 'Invalid data.'}, status=status.HTTP_400_BAD_REQUEST)
         import_platform(studio, request.data)
         return Response({'initialized': True, 'data': export_platform(studio)})
+
+
+class PasswordResetRequestView(APIView):
+    """Emails a single-use reset link. Always answers the same way so it cannot reveal which emails have accounts."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'password_reset'
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email'].strip().lower()
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
+        if user is not None and user.has_usable_password():
+            query = urlencode({'uid': urlsafe_base64_encode(force_bytes(user.pk)), 'token': default_token_generator.make_token(user)})
+            minutes = settings.PASSWORD_RESET_TIMEOUT // 60
+            try:
+                send_mail(
+                'Reset your FrameFlow password',
+                f'Hi {user.full_name},\n\nWe received a request to reset your FrameFlow password. Open this link within '
+                f'{minutes} minutes to choose a new one:\n{settings.FRONTEND_URL}/reset-password?{query}\n\n'
+                'The link works once. If you did not ask for this, ignore this email: your password stays the same.\n',
+                settings.DEFAULT_FROM_EMAIL,
+                [user.email],
+                )
+            except EMAIL_ERRORS:
+                logger.exception('Password reset email failed')
+                return Response({'detail': EMAIL_UNAVAILABLE}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response({'detail': 'If an account exists for this email, a reset link is on its way.'})
+
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'password_reset'
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            user = User.objects.get(pk=force_str(urlsafe_base64_decode(data['uid'])), is_active=True)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            user = None
+        # The token embeds the password hash and last login, so it stops working once used.
+        if user is None or not default_token_generator.check_token(user, data['token']):
+            return Response({'detail': 'This reset link is invalid or has expired. Request a new one.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            validate_password(data['password'], user=user)
+        except ValidationError as error:
+            return Response({'password': error.messages}, status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            user.set_password(data['password'])
+            user.save(update_fields=['password'])
+            Token.objects.filter(user=user).delete()  # Sign out every device that used the old password.
+        send_mail(
+            'Your FrameFlow password was changed',
+            f'Hi {user.full_name},\n\nYour FrameFlow password was just changed and you were signed out on all devices. '
+            'If this was not you, reset your password again right away and contact support.\n',
+            settings.DEFAULT_FROM_EMAIL,
+            [user.email],
+            fail_silently=True,
+        )
+        return Response({'detail': 'Password updated. You can now log in with your new password.'})

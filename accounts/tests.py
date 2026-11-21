@@ -278,3 +278,55 @@ class PackageQuoteRecalculationTests(APITestCase):
         self.assertEqual(self.post(snap).status_code, 201)
         self.assertEqual(SharedQuote.objects.get(local_id='q-1').snapshot['total'], 0)
         self.assertEqual(self.post(snap).status_code, 200)
+
+
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend', FRONTEND_URL='https://app.example.com')
+class PasswordResetTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(email='reset@example.com', password='Old!Photo2026', full_name='Reset User', phone='9822041567', is_active=True)
+
+    def request_link(self, email='reset@example.com'):
+        return self.client.post(reverse('password-reset'), {'email': email}, format='json')
+
+    def link_params(self):
+        link = next(line for line in mail.outbox[-1].body.splitlines() if '/reset-password?' in line)
+        self.assertTrue(link.startswith('https://app.example.com/reset-password?'))
+        query = parse_qs(urlparse(link).query)
+        return query['uid'][0], query['token'][0]
+
+    def confirm(self, uid, token, password='New!Photo2026'):
+        return self.client.post(reverse('password-reset-confirm'), {'uid': uid, 'token': token, 'password': password}, format='json')
+
+    def test_reset_changes_password_once_and_signs_out_everywhere(self):
+        old_token = self.client.post(reverse('login'), {'email': 'reset@example.com', 'password': 'Old!Photo2026'}, format='json').data['token']
+        self.assertEqual(self.request_link().status_code, 200)
+        uid, token = self.link_params()
+        self.assertEqual(self.confirm(uid, token).status_code, 200)
+        self.assertIn('password was changed', mail.outbox[-1].subject)
+        self.assertEqual(self.client.post(reverse('login'), {'email': 'reset@example.com', 'password': 'Old!Photo2026'}, format='json').status_code, 400)
+        self.assertEqual(self.client.post(reverse('login'), {'email': 'reset@example.com', 'password': 'New!Photo2026'}, format='json').status_code, 200)
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + old_token)
+        self.assertEqual(self.client.get(reverse('me')).status_code, 401)
+        self.client.credentials()
+        self.assertEqual(self.confirm(uid, token, 'Another!Photo2026').status_code, 400)  # Link is single-use.
+
+    def test_unknown_or_unverified_email_gets_same_answer_and_no_email(self):
+        User.objects.create_user(email='pending@example.com', password='Old!Photo2026', full_name='Pending', phone='9822041568', is_active=False)
+        known = self.request_link()
+        mail.outbox.clear()
+        unknown = self.request_link('nobody@example.com')
+        pending = self.request_link('pending@example.com')
+        self.assertEqual(known.data, unknown.data)
+        self.assertEqual(known.data, pending.data)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_bad_token_and_weak_password_are_rejected(self):
+        self.request_link()
+        uid, token = self.link_params()
+        self.assertEqual(self.confirm(uid, 'bad-token').status_code, 400)
+        self.assertEqual(self.confirm('garbage', token).status_code, 400)
+        weak = self.confirm(uid, token, 'password')
+        self.assertEqual(weak.status_code, 400)
+        self.assertIn('password', weak.data)
+        self.assertTrue(User.objects.get(pk=self.user.pk).check_password('Old!Photo2026'))

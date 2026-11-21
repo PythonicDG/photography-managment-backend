@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import LoginView, LogoutView, MeView, PlatformView, PublicQuoteView, RegisterView, SendDocumentView, SendQuotationWhatsAppView, SharedQuoteListView, StartTrialView, StudioView, VerifyEmailView
+from .views import LoginView, LogoutView, PasswordResetConfirmView, PasswordResetRequestView, MeView, PlatformView, PublicQuoteView, RegisterView, SendDocumentView, SendQuotationWhatsAppView, SharedQuoteListView, StartTrialView, StudioView, VerifyEmailView
 
 urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
@@ -8,6 +8,8 @@ urlpatterns = [
     path('studio/', StudioView.as_view(), name='studio'),
     path('trial/start/', StartTrialView.as_view(), name='start-trial'),
     path('login/', LoginView.as_view(), name='login'),
+    path('password-reset/', PasswordResetRequestView.as_view(), name='password-reset'),
+    path('password-reset/confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
     path('me/', MeView.as_view(), name='me'),
     path('logout/', LogoutView.as_view(), name='logout'),
     path('quotes/', SharedQuoteListView.as_view(), name='shared-quotes'),

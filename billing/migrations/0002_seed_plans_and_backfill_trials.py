@@ -9,7 +9,7 @@ PLANS = [
     {
         'slug': 'solo', 'name': 'Solo', 'tagline': 'For freelance photographers', 'sort_order': 10,
         'price_monthly': 999, 'price_yearly': 799 * 12, 'is_featured': False,
-        'features': ['1 user', 'Client records from quotations', 'Quotations & invoices with GST', '50 bookings / month', 'WhatsApp reminders'],
+        'features': ['1 user', 'Client records from quotations', 'Quotation & invoice PDFs with your GSTIN', '50 bookings / month', 'Send quotations on WhatsApp'],
     },
     {
         'slug': 'studio', 'name': 'Studio', 'tagline': 'For growing wedding studios', 'sort_order': 20,
